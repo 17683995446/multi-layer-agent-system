@@ -1,608 +1,436 @@
-import React, { useState, useEffect } from "react";
-import {
-  Zap,
-  Layers,
-  Play,
-  Pause,
-  Settings,
-  BarChart3,
-  ShieldCheck,
-  MessageSquare,
-  Users,
-  Bell,
-  ChevronRight,
-  CheckCircle2,
-  Clock,
-  Cpu,
-  Server,
-  Database,
-  Brain,
-  Eye,
-  TrendingUp,
-  Activity,
-} from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Toaster, toast } from "sonner";
-import { formatDistanceToNow } from "date-fns";
-import { zhCN } from "date-fns/locale";
-import { useSystemStore } from "@/stores/systemStore";
-import { LayerCard } from "@/components/layers/LayerCard";
-import { TaskQueue } from "@/components/common/TaskQueue";
-import { MetricsPanel } from "@/components/common/MetricsPanel";
-import { EvolutionPanel } from "@/components/common/EvolutionPanel";
-import { AddTaskModal } from "@/components/common/AddTaskModal";
-import { TaskDetailModal } from "@/components/common/TaskDetailModal";
-import { Task } from "@/types";
+import React, { useState, useEffect, useCallback } from 'react';
+import { motion } from 'framer-motion';
+import { Task } from '@/types';
+import { useSystemStore } from '@/stores/systemStore';
+import { Toaster, toast } from 'sonner';
 
 const taskNames = [
-  "数据采集任务",
-  "模型推理任务",
-  "日志分析任务",
-  "报告生成任务",
-  "系统诊断任务",
-  "配置更新任务",
-  "备份同步任务",
-  "监控告警任务",
+  '数据分析任务', '数据处理', '用户请求', '系统诊断',
+  '知识图谱构建', '模型训练', '数据同步', '批量处理',
+  '报告生成', '系统备份', '智能推理', '数据校验'
 ];
-
-type ViewMode = "dashboard" | "analytics" | "settings";
 
 export default function Home() {
   const {
-    mode,
     layers,
     tasks,
     currentTask,
     metrics,
-    evolution,
     memories,
     strategies,
-    knowledge,
+    notifications,
     isRunning,
     addTask,
-    updateTask,
     setCurrentTask,
     updateLayerStatus,
     updateMetrics,
-    updateEvolution,
-    start,
-    stop,
+    addMemory,
+    updateTask,
+    startSystem,
+    stopSystem,
+    storageWarning,
+    lastError,
+    setLastError,
+    executeTask
   } = useSystemStore();
 
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("dashboard");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [queueProcessing, setQueueProcessing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'system' | 'metrics'>('system');
 
-  useEffect(() => {
-    if (isRunning) {
-      toast.success("系统已启动");
-    }
-  }, [isRunning]);
-
-  const handleQuickAddTask = () => {
+  const handleQuickAdd = useCallback(() => {
     const newTask: Task = {
-      id: `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `task-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       name: taskNames[Math.floor(Math.random() * taskNames.length)],
-      priority: Math.floor(Math.random() * 4),
-      status: "pending",
-      input: { timestamp: Date.now() },
-      createdAt: Date.now(),
+      priority: Math.floor(Math.random() * 4) as 0 | 1 | 2 | 3 | 4,
+      status: 'pending',
+      input: { timestamp: Date.now(), source: 'user' },
+      createdAt: Date.now()
     };
+    
     addTask(newTask);
-    toast.success("任务已添加");
-  };
+    toast.success('新任务已添加');
+  }, [addTask]);
 
-  const handleToggleSystem = () => {
-    if (isRunning) {
-      stop();
-      toast.info("系统已停止");
-    } else {
-      start();
+  const handleBatchAdd = useCallback(() => {
+    const count = 5 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < count; i++) {
+      const newTask: Task = {
+        id: `task-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 9)}`,
+        name: taskNames[Math.floor(Math.random() * taskNames.length)],
+        priority: Math.floor(Math.random() * 4) as 0 | 1 | 2 | 3 | 4,
+        status: 'pending',
+        input: { timestamp: Date.now(), batch: true },
+        createdAt: Date.now()
+      };
+      addTask(newTask);
     }
-  };
+    toast.success(`已批量添加 ${count} 个任务`);
+  }, [addTask]);
+
+  // 自动处理队列
+  useEffect(() => {
+    if (!isRunning) return;
+    
+    const pendingTasks = tasks.filter(t => t.status === 'pending');
+    if (pendingTasks.length > 0 && !queueProcessing && !currentTask) {
+      const process = async () => {
+        setQueueProcessing(true);
+        for (const task of pendingTasks) {
+          await executeTask(task.id);
+        }
+        setQueueProcessing(false);
+      };
+      process();
+    }
+  }, [isRunning, tasks, queueProcessing, currentTask, executeTask]);
 
   const stats = [
     {
-      label: "总任务",
-      value: metrics.totalTasks || 0,
-      icon: Database,
-      color: "text-blue-500",
-      bgColor: "bg-blue-500/10",
+      label: '总任务',
+      value: metrics.totalTasks,
+      icon: '📊',
+      color: 'text-blue-500',
+      bgColor: 'bg-blue-500/10'
     },
     {
-      label: "成功率",
-      value: `${((metrics.successRate || 0) * 100).toFixed(1)}%`,
-      icon: CheckCircle2,
-      color: "text-emerald-500",
-      bgColor: "bg-emerald-500/10",
+      label: '完成率',
+      value: `${metrics.totalTasks > 0 ? Math.min(100, Math.round((metrics.completedTasks / metrics.totalTasks) * 100)) : 0}%`,
+      icon: '✅',
+      color: 'text-emerald-500',
+      bgColor: 'bg-emerald-500/10'
     },
     {
-      label: "运行时间",
-      value: formatDuration(metrics.uptime || 0),
-      icon: Clock,
-      color: "text-amber-500",
-      bgColor: "bg-amber-500/10",
+      label: '运行中',
+      value: isRunning ? '是' : '否',
+      icon: '⏱️',
+      color: 'text-amber-500',
+      bgColor: 'bg-amber-500/10'
     },
     {
-      label: "响应时间",
-      value: `${(metrics.avgResponseTime || 0).toFixed(0)}ms`,
-      icon: Activity,
-      color: "text-purple-500",
-      bgColor: "bg-purple-500/10",
-    },
+      label: '队列',
+      value: tasks.filter(t => t.status === 'pending').length,
+      icon: '📋',
+      color: 'text-purple-500',
+      bgColor: 'bg-purple-500/10'
+    }
   ];
 
-  const menuItems = [
-    { id: "dashboard", label: "仪表盘", icon: Layers },
-    { id: "analytics", label: "分析中心", icon: BarChart3 },
-    { id: "settings", label: "系统设置", icon: Settings },
-  ];
-
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <Toaster 
-        position="top-right" 
-        theme="dark" 
-        toastOptions={{
-          style: {
-            background: "#1e293b",
-            color: "#f8fafc",
-            border: "1px solid #334155",
-          },
-        }}
-      />
-
-      <div className="flex h-screen overflow-hidden">
-        <Sidebar 
-          open={sidebarOpen}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-          menuItems={menuItems}
-        />
-
-        <main className="flex-1 overflow-hidden flex flex-col">
-          <Header
-            sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-            onToggleSystem={handleToggleSystem}
-            isRunning={isRunning}
-          />
-
-          <div className="flex-1 overflow-auto p-4 lg:p-6">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={viewMode}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: 0.3 }}
-              >
-                {viewMode === "dashboard" && (
-                  <DashboardView
-                    layers={layers}
-                    tasks={tasks}
-                    currentTask={currentTask}
-                    metrics={metrics}
-                    evolution={evolution}
-                    memories={memories}
-                    strategies={strategies}
-                    knowledge={knowledge}
-                    isRunning={isRunning}
-                    mode={mode}
-                    stats={stats}
-                    onQuickAddTask={handleQuickAddTask}
-                    onShowAddModal={() => setShowAddModal(true)}
-                    onTaskClick={setSelectedTask}
-                  />
-                )}
-                {viewMode === "analytics" && <AnalyticsView />}
-                {viewMode === "settings" && <SettingsView />}
-              </motion.div>
-            </AnimatePresence>
-          </div>
-        </main>
-      </div>
-
-      <AddTaskModal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        onAdd={(task) => {
-          addTask(task);
-          setShowAddModal(false);
-        }}
-      />
-
-      {selectedTask && (
-        <TaskDetailModal
-          task={selectedTask}
-          isOpen={!!selectedTask}
-          onClose={() => setSelectedTask(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-function Sidebar({
-  open,
-  viewMode,
-  onViewModeChange,
-  menuItems,
-}: {
-  open: boolean;
-  viewMode: ViewMode;
-  onViewModeChange: (mode: ViewMode) => void;
-  menuItems: { id: string; label: string; icon: any }[];
-}) {
-  return (
-    <motion.aside
-      initial={false}
-      animate={{ width: open ? 260 : 80 }}
-      className="bg-slate-900 border-r border-slate-800 flex flex-col h-full"
-    >
-      <div className="p-6 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
-          <Zap className="w-5 h-5 text-white" />
-        </div>
-        {open && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <h1 className="font-bold text-lg">Agent System</h1>
-            <p className="text-xs text-slate-500">企业级智能体</p>
-          </motion.div>
-        )}
-      </div>
-
-      <nav className="flex-1 px-4 py-4 space-y-2">
-        {menuItems.map((item) => {
-          const isActive = item.id === viewMode;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onViewModeChange(item.id as ViewMode)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                isActive
-                  ? "bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/30"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-              }`}
-            >
-              <item.icon className="w-5 h-5 flex-shrink-0" />
-              {open && <span className="font-medium">{item.label}</span>}
-            </button>
-          );
-        })}
-      </nav>
-
-      <div className="p-4 border-t border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
-            <Users className="w-5 h-5" />
-          </div>
-          {open && (
-            <div className="overflow-hidden">
-              <p className="font-medium truncate">管理员</p>
-              <p className="text-xs text-slate-500 truncate">admin@system</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </motion.aside>
-  );
-}
-
-function Header({
-  sidebarOpen,
-  onToggleSidebar,
-  onToggleSystem,
-  isRunning,
-}: {
-  sidebarOpen: boolean;
-  onToggleSidebar: () => void;
-  onToggleSystem: () => void;
-  isRunning: boolean;
-}) {
-  return (
-    <header className="bg-slate-900 border-b border-slate-800 px-4 lg:px-6 py-4 flex items-center justify-between">
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onToggleSidebar}
-          className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
-        >
-          <Layers className="w-5 h-5" />
-        </button>
-        <h2 className="text-lg font-semibold hidden sm:block">
-          多层级自主智能体系统
-        </h2>
-      </div>
-
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onToggleSystem}
-          className={`
-            flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 shadow-lg
-            ${isRunning
-              ? "bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600"
-              : "bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600"
-            }
-          `}
-        >
-          {isRunning ? (
-            <>
-              <Pause className="w-4 h-4" />
-              <span className="hidden sm:inline">停止系统</span>
-            </>
-          ) : (
-            <>
-              <Play className="w-4 h-4" />
-              <span className="hidden sm:inline">启动系统</span>
-            </>
-          )}
-        </button>
-      </div>
-    </header>
-  );
-}
-
-function DashboardView({
-  layers,
-  tasks,
-  currentTask,
-  metrics,
-  evolution,
-  memories,
-  strategies,
-  knowledge,
-  isRunning,
-  mode,
-  stats,
-  onQuickAddTask,
-  onShowAddModal,
-  onTaskClick,
-}: any) {
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat: any, index: number) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-          >
-            <StatCard {...stat} />
-          </motion.div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <div>
-            <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-4">
-              系统层级架构
-            </h3>
-            <div className="space-y-2">
-              {layers.map((layer: any, index: number) => (
-                <LayerCard
-                  key={layer.id}
-                  layer={layer}
-                  isActive={layer.status === "active"}
-                  index={index}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <MetricsPanel metrics={metrics} />
-          <div className="flex gap-2">
-            <button
-              onClick={onQuickAddTask}
-              className="flex-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-4 py-2 rounded-lg font-medium transition-colors"
-            >
-              快速添加
-            </button>
-            <button
-              onClick={onShowAddModal}
-              className="flex-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 px-4 py-2 rounded-lg font-medium transition-colors"
-            >
-              自定义
-            </button>
-          </div>
-          <TaskQueue
-            tasks={tasks}
-            currentTask={currentTask}
-            onTaskClick={onTaskClick}
-          />
-          <EvolutionPanel
-            evolution={evolution}
-            memories={memories}
-            strategies={strategies}
-            knowledge={knowledge}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AnalyticsView() {
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">数据分析中心</h2>
-          <p className="text-slate-500 mt-1">
-            深入分析系统性能和任务执行情况
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div className="col-span-1 lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold mb-4">性能趋势</h3>
-          <div className="h-64 flex items-center justify-center text-slate-600">
-            图表区域（使用 Recharts）
-          </div>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold mb-4">资源使用</h3>
-          <div className="space-y-4">
-            <ResourceBar label="CPU" value={65} color="blue" />
-            <ResourceBar label="内存" value={45} color="purple" />
-            <ResourceBar label="存储" value={30} color="green" />
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold mb-4">任务分布</h3>
-          <div className="h-48 flex items-center justify-center text-slate-600">
-            饼图区域
-          </div>
-        </div>
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold mb-4">错误日志</h3>
-          <div className="h-48 flex items-center justify-center text-slate-600">
-            日志分析区域
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SettingsView() {
-  return (
-    <div className="max-w-3xl space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">系统设置</h2>
-        <p className="text-slate-500 mt-1">
-          配置系统参数和偏好
-        </p>
-      </div>
-
-      <div className="space-y-6">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Settings className="w-5 h-5" />
-            基本设置
-          </h3>
-          <div className="space-y-4">
-            <SettingItem label="自动保存" description="自动保存系统状态" />
-            <SettingItem label="实时更新" description="启用实时数据同步" />
-            <SettingItem label="通知提醒" description="接收系统通知" />
-          </div>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5" />
-            安全设置
-          </h3>
-          <div className="space-y-4">
-            <SettingItem label="权限控制" description="启用精细权限管理" />
-            <SettingItem label="数据加密" description="加密敏感数据" />
-          </div>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Cpu className="w-5 h-5" />
-            性能设置
-          </h3>
-          <div className="space-y-4">
-            <SettingItem label="虚拟滚动" description="提升大数据列表渲染性能" />
-            <SettingItem label="缓存策略" description="优化内存使用和访问速度" />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  color,
-  bgColor,
-}: {
-  label: string;
-  value: string | number;
-  icon: any;
-  color: string;
-  bgColor: string;
-}) {
-  return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-slate-700 transition-colors">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-slate-500 font-medium">{label}</p>
-          <p className="text-2xl font-bold mt-2">{value}</p>
-        </div>
-        <div className={`${bgColor} ${color} p-3 rounded-xl`}>
-          <Icon className="w-6 h-6" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ResourceBar({ label, value, color }: { label: string; value: number; color: string }) {
-  const colorClasses: Record<string, string> = {
-    blue: "bg-blue-500",
-    purple: "bg-purple-500",
-    green: "bg-emerald-500",
+  const getButtonClass = (isRunning: boolean, isStart: boolean) => {
+    const baseClass = 'px-6 py-3 rounded-lg font-medium transition-all';
+    if (isStart) {
+      return isRunning 
+        ? `${baseClass} bg-slate-700 cursor-not-allowed` 
+        : `${baseClass} bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 shadow-lg shadow-cyan-500/20 transform hover:scale-105`;
+    } else {
+      return !isRunning 
+        ? `${baseClass} bg-slate-700 cursor-not-allowed` 
+        : `${baseClass} bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 shadow-lg shadow-orange-500/20`;
+    }
   };
 
   return (
-    <div>
-      <div className="flex justify-between text-sm mb-2">
-        <span className="text-slate-400">{label}</span>
-        <span className="text-slate-600">{value}%</span>
-      </div>
-      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-        <motion.div
-          className={`h-full ${colorClasses[color]}`}
-          initial={{ width: 0 }}
-          animate={{ width: `${value}%` }}
-          transition={{ duration: 1, ease: "easeOut" }}
-        />
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 to-slate-900 text-slate-100">
+      <Toaster position="top-right" theme="dark" />
+      
+      <div className="container mx-auto px-4 py-8">
+        <header className="mb-8">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
+                多层级自主智能体系统
+              </h1>
+              <p className="text-slate-400 mt-2">
+                企业级智能任务处理和知识进化系统
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={startSystem}
+                disabled={isRunning}
+                className={getButtonClass(isRunning, true)}
+              >
+                {isRunning ? (
+                  <span className="animate-pulse">⏸️ 系统运行中</span>
+                ) : (
+                  <span>▶️ 启动系统</span>
+                )}
+              </button>
+              
+              <button
+                onClick={stopSystem}
+                disabled={!isRunning}
+                className={getButtonClass(isRunning, false)}
+              >
+                {!isRunning ? (
+                  <span>⏸️ 已停止</span>
+                ) : (
+                  <span>⏸️ 停止系统</span>
+                )}
+              </button>
+            </div>
+          </div>
+          
+          {storageWarning && (
+            <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+              <p className="text-amber-400 font-medium">⚠️ 存储空间警告：存储容量即将用尽，请考虑清理旧数据</p>
+            </div>
+          )}
+          
+          {lastError && (
+            <div className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <p className="text-red-400 font-medium">❌ {lastError}</p>
+              <button 
+                className="text-red-300 text-sm hover:text-red-200"
+                onClick={() => setLastError(null)}
+              >
+                清除
+              </button>
+            </div>
+          )}
+        </header>
+
+        <div className="flex gap-4 mb-6 border-b border-slate-700 pb-2">
+          <button
+            onClick={() => setActiveTab('system')}
+            className={activeTab === 'system' 
+              ? 'px-4 py-2 rounded-t-lg font-medium bg-slate-800 text-white' 
+              : 'px-4 py-2 rounded-t-lg font-medium text-slate-400 hover:text-white'}
+          >
+            🖥️ 系统界面
+          </button>
+          <button
+            onClick={() => setActiveTab('metrics')}
+            className={activeTab === 'metrics' 
+              ? 'px-4 py-2 rounded-t-lg font-medium bg-slate-800 text-white' 
+              : 'px-4 py-2 rounded-t-lg font-medium text-slate-400 hover:text-white'}
+          >
+            📈 数据指标
+          </button>
+        </div>
+
+        {activeTab === 'system' && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+              {stats.map((stat, idx) => (
+                <motion.div
+                  key={idx}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                >
+                  <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:border-slate-700 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-slate-500 text-sm mb-2">{stat.label}</p>
+                        <p className="text-2xl font-bold">{stat.value}</p>
+                      </div>
+                      <div className={`${stat.bgColor} p-3 rounded-xl text-2xl`}>
+                        {stat.icon}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 space-y-4">
+                <h2 className="text-xl font-semibold text-slate-300 mb-4">层级系统 ({layers.length} 层架构)</h2>
+                <div className="space-y-4">
+                  {layers.map((layer, idx) => (
+                    <div key={layer.id} className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-semibold text-lg">
+                            <span className="text-blue-400 mr-2">{layer.id}.</span>
+                            {layer.name}
+                          </h3>
+                          <p className="text-slate-500 text-sm">
+                            {layer.modules.join(' • ')}
+                          </p>
+                          <div className="flex gap-4 mt-2 text-xs text-slate-400">
+                            <span>CPU: {Math.round(layer.metrics.cpuUsage * 100)}%</span>
+                            <span>Memory: {Math.round(layer.metrics.memoryUsage * 100)}%</span>
+                            <span>成功率: {Math.round(layer.metrics.successRate * 100)}%</span>
+                          </div>
+                        </div>
+                        <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          layer.status === 'active' ? 'bg-green-500/20 text-green-400' :
+                          layer.status === 'processing' ? 'bg-blue-500/20 text-blue-400 animate-pulse' :
+                          layer.status === 'idle' ? 'bg-slate-700 text-slate-400' :
+                          'bg-red-500/20 text-red-400'}`}
+                        >
+                          {layer.status === 'active' ? '运行中' :
+                           layer.status === 'processing' ? '处理中' :
+                           layer.status === 'idle' ? '空闲' : '错误'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-6 grid grid-cols-2 gap-3">
+                  <button
+                    onClick={handleQuickAdd}
+                    className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 px-6 py-3 rounded-xl font-medium shadow-lg shadow-purple-500/20 hover:scale-105 transition-all"
+                  >
+                    <span className="mr-2">➕</span>
+                    快速添加任务
+                  </button>
+                  <button
+                    onClick={handleBatchAdd}
+                    className="bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 px-6 py-3 rounded-xl font-medium shadow-lg shadow-emerald-500/20 hover:scale-105 transition-all"
+                  >
+                    <span className="mr-2">📦</span>
+                    批量添加任务
+                  </button>
+                </div>
+
+                {notifications.length > 0 && (
+                  <div className="mt-6 bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                    <h3 className="font-semibold text-white mb-3">最近通知</h3>
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {notifications.slice(0, 5).map((notification) => (
+                        <div 
+                          key={notification.id} 
+                          className={`p-2 rounded text-sm ${
+                            notification.type === 'success' ? 'bg-green-500/10 text-green-400' :
+                            notification.type === 'error' ? 'bg-red-500/10 text-red-400' :
+                            notification.type === 'warning' ? 'bg-yellow-500/10 text-yellow-400' :
+                            'bg-slate-800 text-slate-300'}`}
+                        >
+                          {notification.message}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
+                  <h3 className="text-lg font-semibold mb-4">系统指标</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">总任务</span>
+                      <span className="font-semibold">{metrics.totalTasks}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">已完成</span>
+                      <span className="font-semibold text-green-400">{metrics.completedTasks}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">失败</span>
+                      <span className="font-semibold text-red-400">{metrics.failedTasks}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">平均响应时间</span>
+                      <span className="font-semibold">{Math.round(metrics.avgResponseTime)}ms</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">知识增长</span>
+                      <span className="font-semibold text-cyan-400">{metrics.knowledgeGrowth}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
+                  <h3 className="text-lg font-semibold mb-4">任务队列</h3>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {tasks.slice(-10).reverse().map(task => (
+                      <div key={task.id} className="flex items-center justify-between p-2 bg-slate-800/50 rounded">
+                        <div>
+                          <p className="text-sm font-medium">{task.name}</p>
+                          <p className="text-xs text-slate-500">优先级: {task.priority}</p>
+                        </div>
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          task.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                          task.status === 'running' ? 'bg-blue-500/20 text-blue-400' :
+                          task.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                          'bg-slate-700 text-slate-400'}`}
+                        >
+                          {task.status === 'pending' ? '等待中' :
+                           task.status === 'running' ? '执行中' :
+                           task.status === 'completed' ? '完成' : '失败'}
+                        </span>
+                      </div>
+                    ))}
+                    {tasks.length === 0 && (
+                      <div className="text-center text-slate-500 py-4">暂无任务</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
+                  <h3 className="text-lg font-semibold mb-4">知识库</h3>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">记忆条目</span>
+                      <span>{memories.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">策略数量</span>
+                      <span>{strategies.length}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'metrics' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
+              <h3 className="text-lg font-semibold mb-4">任务统计</h3>
+              <div className="space-y-4">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">总任务</span>
+                  <span className="text-2xl font-bold text-blue-400">{metrics.totalTasks}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">已完成</span>
+                  <span className="text-2xl font-bold text-green-400">{metrics.completedTasks}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">失败</span>
+                  <span className="text-2xl font-bold text-red-400">{metrics.failedTasks}</span>
+                </div>
+                <div className="pt-4 border-t border-slate-700">
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-slate-400">成功率</span>
+                    <span className="text-white">{Math.round(metrics.successRate)}%</span>
+                  </div>
+                  <div className="w-full bg-slate-700 rounded-full h-3">
+                    <div 
+                      className="bg-gradient-to-r from-green-500 to-emerald-500 h-3 rounded-full transition-all"
+                      style={{ width: `${Math.min(100, metrics.successRate)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
+              <h3 className="text-lg font-semibold mb-4">系统性能</h3>
+              <div className="space-y-4">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">平均响应时间</span>
+                  <span className="text-xl font-bold text-cyan-400">{Math.round(metrics.avgResponseTime)}ms</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">知识增长</span>
+                  <span className="text-xl font-bold text-purple-400">{metrics.knowledgeGrowth}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">进化步骤</span>
+                  <span className="text-xl font-bold text-orange-400">{metrics.evolutionSteps}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
-}
-
-function SettingItem({ label, description }: { label: string; description: string }) {
-  const [enabled, setEnabled] = useState(true);
-
-  return (
-    <div className="flex items-center justify-between py-3">
-      <div>
-        <p className="font-medium">{label}</p>
-        <p className="text-sm text-slate-500">{description}</p>
-      </div>
-      <button
-        onClick={() => setEnabled(!enabled)}
-        className={`w-12 h-6 rounded-full transition-colors relative ${
-          enabled ? "bg-cyan-500" : "bg-slate-700"
-        }`}
-      >
-        <motion.div
-          className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full"
-          animate={{ x: enabled ? 24 : 0 }}
-        />
-      </button>
-    </div>
-  );
-}
-
-function formatDuration(seconds: number) {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-  return `${Math.floor(seconds / 86400)}d`;
 }
