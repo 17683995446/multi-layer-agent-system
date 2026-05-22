@@ -590,7 +590,14 @@ export const useSystemStore = create<SystemStore>((set, get) => {
       const newLayers = state.layers.map((l) => l.id === layerId ? { ...l, ...updates, lastUpdate: Date.now() } : l);
       
       logger.debug('STORE', 'updateLayerStatus: Saving layers to storage');
-      SafeStorage.setLayers(newLayers);
+      // Bug20修复：先存储验证
+      const saved = SafeStorage.setLayers(newLayers);
+      if (!saved) {
+        logger.error('STORE', 'updateLayerStatus: Failed to save layers to storage');
+        set({ lastError: 'Failed to save layers to storage' });
+        // 存储失败不更新状态，保持一致
+        return state;
+      }
       
       logger.info('LAYER', `updateLayerStatus: Layer ${layerId} updated`);
       return { layers: newLayers };
@@ -632,7 +639,14 @@ export const useSystemStore = create<SystemStore>((set, get) => {
         }
         
         logger.debug('STORE', 'addMemory: Saving memories to storage');
-        SafeStorage.setMemories(newMemories);
+        // Bug21修复：先存储验证
+        const saved = SafeStorage.setMemories(newMemories);
+        if (!saved) {
+          logger.error('STORE', 'addMemory: Failed to save memories to storage');
+          set({ lastError: 'Failed to save memories to storage' });
+          // 存储失败不更新状态，保持一致
+          return state;
+        }
         
         return { memories: newMemories };
       });
@@ -645,9 +659,16 @@ export const useSystemStore = create<SystemStore>((set, get) => {
       logger.debug('MEMORY', `updateMemory: Updating memory ${id}`, { updates });
       const newMemories = state.memories.map((m) => m.id === id ? { ...m, ...updates } : m);
       
-      SafeStorage.setMemories(newMemories);
-      logger.info('MEMORY', `updateMemory: Memory ${id} updated`);
+      // Bug22修复：先存储验证
+      const saved = SafeStorage.setMemories(newMemories);
+      if (!saved) {
+        logger.error('STORE', 'updateMemory: Failed to save memories to storage');
+        set({ lastError: 'Failed to save memories to storage' });
+        // 存储失败不更新状态，保持一致
+        return state;
+      }
       
+      logger.info('MEMORY', `updateMemory: Memory ${id} updated`);
       return { memories: newMemories };
     }),
     
@@ -695,7 +716,15 @@ export const useSystemStore = create<SystemStore>((set, get) => {
         const newStrategies = [newStrategy, ...state.strategies];
         logger.debug('STRATEGY', `addStrategy: New strategies count: ${newStrategies.length}`);
         
-        SafeStorage.setStrategies(newStrategies);
+        // Bug23修复：先存储验证
+        const saved = SafeStorage.setStrategies(newStrategies);
+        if (!saved) {
+          logger.error('STORE', 'addStrategy: Failed to save strategies to storage');
+          set({ lastError: 'Failed to save strategies to storage' });
+          // 存储失败不更新状态，保持一致
+          return state;
+        }
+        
         return { strategies: newStrategies };
       });
       
@@ -707,9 +736,16 @@ export const useSystemStore = create<SystemStore>((set, get) => {
       logger.debug('STRATEGY', `updateStrategy: Updating strategy ${id}`, { updates });
       const newStrategies = state.strategies.map((s) => s.id === id ? { ...s, ...updates, lastUpdated: Date.now() } : s);
       
-      SafeStorage.setStrategies(newStrategies);
-      logger.info('STRATEGY', `updateStrategy: Strategy ${id} updated`);
+      // Bug24修复：先存储验证
+      const saved = SafeStorage.setStrategies(newStrategies);
+      if (!saved) {
+        logger.error('STORE', 'updateStrategy: Failed to save strategies to storage');
+        set({ lastError: 'Failed to save strategies to storage' });
+        // 存储失败不更新状态，保持一致
+        return state;
+      }
       
+      logger.info('STRATEGY', `updateStrategy: Strategy ${id} updated`);
       return { strategies: newStrategies };
     }),
     
