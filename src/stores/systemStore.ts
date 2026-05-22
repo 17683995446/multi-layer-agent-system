@@ -382,10 +382,14 @@ export const useSystemStore = create<SystemStore>((set, get) => {
       const newTasks = get().tasks.map((t) => t.id === id ? { ...t, ...updates } : t);
       logger.debug('TASK', `updateTask: Task list updated, new count: ${newTasks.length}`);
       
+      // Bug16 修复: 先存储，后更新状态
       const saved = SafeStorage.setTasks(newTasks);
+      
       if (!saved) {
         logger.error('STORE', 'updateTask: Failed to save tasks to storage');
         set({ lastError: 'Failed to update task' });
+        // 不更新状态，保持一致性
+        return;
       } else {
         logger.debug('STORE', 'updateTask: Tasks saved to storage successfully');
       }
@@ -399,10 +403,14 @@ export const useSystemStore = create<SystemStore>((set, get) => {
       const newTasks = get().tasks.filter((t) => t.id !== id);
       logger.debug('TASK', `removeTask: New task count: ${newTasks.length}`);
       
+      // Bug17 修复: 先存储，后更新状态
       const saved = SafeStorage.setTasks(newTasks);
+      
       if (!saved) {
         logger.error('STORE', 'removeTask: Failed to save tasks to storage');
         set({ lastError: 'Failed to remove task' });
+        // 不更新状态，保持一致性
+        return;
       } else {
         logger.debug('STORE', 'removeTask: Tasks saved to storage successfully');
       }
@@ -413,10 +421,15 @@ export const useSystemStore = create<SystemStore>((set, get) => {
     
     clearTasks: () => {
       logger.warn('TASK', 'clearTasks: Clearing all tasks');
+      
+      // Bug18 修复: 先存储，后更新状态
       const saved = SafeStorage.setTasks([]);
+      
       if (!saved) {
         logger.error('STORE', 'clearTasks: Failed to save tasks to storage');
         set({ lastError: 'Failed to clear tasks' });
+        // 不更新状态，保持一致性
+        return;
       }
       
       set({ tasks: [], currentTask: null });
