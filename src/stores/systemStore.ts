@@ -293,7 +293,8 @@ export const useSystemStore = create<SystemStore>((set, get) => {
     // 任务管理
     addTask: (task) => {
       logger.debug('TASK', 'addTask: Adding new task', { task });
-      const currentTasks = get().tasks;
+      const stateBefore = get();
+      const currentTasks = stateBefore.tasks;
       logger.debug('TASK', `addTask: Current tasks count: ${currentTasks.length}`);
       
       // 自动清理 - 确保任务总数不超过200，不管状态
@@ -343,15 +344,21 @@ export const useSystemStore = create<SystemStore>((set, get) => {
       const newTasks = [...tasksToKeep, newTask];
       logger.debug('TASK', `addTask: New tasks count: ${newTasks.length}`);
       
-      // Bug4 修复: 先尝试存储，如果存储失败则回滚状态
-      const saved = SafeStorage.setTasks(newTasks);
-      if (!saved) {
-        logger.error('STORE', 'addTask: Failed to save tasks to storage');
+      const newMetrics = { 
+        ...stateBefore.metrics, 
+        totalTasks: stateBefore.metrics.totalTasks + 1 
+      };
+      
+      // Bug10 修复: 先尝试存储，存储成功后再更新状态
+      const tasksSaved = SafeStorage.setTasks(newTasks);
+      const metricsSaved = SafeStorage.setMetrics(newMetrics);
+      
+      if (!tasksSaved || !metricsSaved) {
+        logger.error('STORE', 'addTask: Failed to save to storage', { tasksSaved, metricsSaved });
         set({ lastError: 'Failed to save task to storage' });
-        // 回滚状态，保持内存状态与持久化一致
         return { ...newTask, warning: 'storage failed' };
       } else {
-        logger.debug('STORE', 'addTask: Tasks saved to storage successfully');
+        logger.debug('STORE', 'addTask: Saved to storage successfully');
       }
       
       if (SafeStorage.isNearLimit()) {
@@ -359,14 +366,12 @@ export const useSystemStore = create<SystemStore>((set, get) => {
         set({ storageWarning: true });
       }
       
-      set((state) => {
-        const newState = {
-          tasks: newTasks,
-          metrics: { ...state.metrics, totalTasks: state.metrics.totalTasks + 1 },
-        };
-        logger.debug('STORE', `addTask: Updated metrics - totalTasks: ${newState.metrics.totalTasks}`);
-        return newState;
+      set({
+        tasks: newTasks,
+        metrics: newMetrics,
       });
+      
+      logger.debug('STORE', `addTask: Updated metrics - totalTasks: ${newMetrics.totalTasks}`);
       
       logger.info('TASK', `addTask: Task added successfully - ${newTask.name} (${newTask.id})`);
       return newTask;
@@ -521,7 +526,17 @@ export const useSystemStore = create<SystemStore>((set, get) => {
           successRate: newMetrics.successRate
         });
         
-        set({ metrics: newMetrics });
+        // Bug14 修复: 先持久化metrics
+        const metricsSaved = SafeStorage.setMetrics(newMetrics);
+        
+        if (!metricsSaved) {
+          logger.error('STORE', 'executeTask: Failed to save metrics to storage');
+          set({ lastError: 'Failed to save metrics to storage' });
+        } else {
+          logger.debug('STORE', 'executeTask: Metrics saved to storage successfully');
+          set({ metrics: newMetrics });
+        }
+        
         logger.info('TASK', `executeTask: Task ${taskId} execution fully completed`);
         
       } catch (error) {
@@ -827,6 +842,7 @@ export const useSystemStore = create<SystemStore>((set, get) => {
       SafeStorage.setMetrics(state.metrics);
       SafeStorage.setMemories(state.memories);
       SafeStorage.setStrategies(state.strategies);
+      SafeStorage.setNotifications(state.notifications); // Bug13 修复: 保存通知
       
       logger.info('STORE', 'saveSystemState: System state saved successfully');
     },
@@ -838,6 +854,7 @@ export const useSystemStore = create<SystemStore>((set, get) => {
       const metrics = SafeStorage.getMetrics();
       const memories = SafeStorage.getMemories();
       const strategies = SafeStorage.getStrategies();
+      const notifications = SafeStorage.getNotifications(); // Bug12 修复: 加载通知
       
       set({
         tasks,
@@ -845,6 +862,7 @@ export const useSystemStore = create<SystemStore>((set, get) => {
         metrics: { ...initializeMetrics(), ...metrics },
         memories: memories.length > 0 ? memories : sampleMemories,
         strategies: strategies.length > 0 ? strategies : sampleStrategies,
+        notifications, // Bug12 修复: 使用加载的通知
       });
       
       logger.info('STORE', 'loadSystemState: System state loaded successfully');
