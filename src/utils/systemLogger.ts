@@ -1,5 +1,5 @@
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL';
-export type LogCategory = 'SYSTEM' | 'STORE' | 'TASK' | 'MEMORY' | 'NOTIFICATION' | 'LAYER' | 'TEST';
+export type LogCategory = 'SYSTEM' | 'STORE' | 'TASK' | 'MEMORY' | 'NOTIFICATION' | 'LAYER' | 'TEST' | 'MARATHON' | 'STRATEGY' | 'KNOWLEDGE';
 
 export interface LogEntry {
   id: string;
@@ -92,8 +92,7 @@ class SystemLogger {
       hour12: false, 
       hour: '2-digit', 
       minute: '2-digit', 
-      second: '2-digit',
-      fractionalSecondDigits: 3
+      second: '2-digit'
     });
 
     console.log(
